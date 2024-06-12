@@ -1,0 +1,104 @@
+image: node:16-alpine
+options:
+  docker: true
+
+definitions:
+  steps:
+    - artifacts: &test-artifacts
+        - coverage/**
+        - test-report.xml
+    - artifacts: &artifacts
+        - dist/**
+        - node_modules/**
+        - Dockerfile
+        - package.json
+        - .dockerignore        
+        - k8s/**
+    - step: &deploy
+        name: Deploy EKS
+        image: google/cloud-sdk:latest
+        clone:
+          enabled: false
+        services:
+          - docker
+        artifacts: *artifacts
+        script:
+          - export DOCKER_BUILDKIT=0
+          - echo $GCLOUD_API_KEYFILE | base64 -d > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+          - gcloud config set project $GCLOUD_PROJECT
+          - gcloud auth configure-docker
+          - IMAGE_NAME="gcr.io/${GCLOUD_PROJECT}/${REPO_IMAGE}:${BITBUCKET_BUILD_NUMBER}"
+          - docker build -t ${IMAGE_NAME} .
+          - docker -- push ${IMAGE_NAME}
+          - sed -i -e 's#{APPLICATION_IMAGE}#'"$IMAGE_NAME"'#' -e 's#{KUBERNETES_NAMESPACE}#'"$KUBERNETES_NAMESPACE"'#' -e 's#{APPLICATION_NAME}#'"$APPLICATION_NAME"'#' ./k8s/deployment.yaml
+          - sed -i -e 's#{MINIMUM_REPLICAS}#'"$MINIMUM_REPLICAS"'#g' -e 's#{MEMORY_REQUEST}#'"$MEMORY_REQUEST"'#g' -e 's#{CPU_REQUEST}#'"$CPU_REQUEST"'#g' -e 's#{MEMORY_LIMIT}#'"$MEMORY_LIMIT"'#g' -e 's#{CPU_LIMIT}#'"$CPU_LIMIT"'#g' ./k8s/deployment.yaml
+          - sed -i -e 's#{MAXIMUM_REPLICAS}#'"$MAXIMUM_REPLICAS"'#g' -e 's#{AVERAGE_MEMORY}#'"$AVERAGE_MEMORY"'#g' -e 's#{AVERAGE_CPU}#'"$AVERAGE_CPU"'#g' ./k8s/deployment.yaml
+          - sed -i -e 's#{KUBERNETES_SERVICE}#'"$KUBERNETES_SERVICE"'#' -e 's#{KUBERNETES_INGRESS}#'"$KUBERNETES_INGRESS"'#' -e 's#{EXTERNAL_IP_ENDPOINT}#'"$EXTERNAL_IP_ENDPOINT"'#' -e 's#{SECRET_TLS}#'"$SECRET_TLS"'#' -e 's#{HOST}#'"$HOST"'#' ./k8s/deployment.yaml
+          - gcloud container clusters get-credentials $KUBERNETES_CLUSTER --zone $KUBERNETES_ZONE  --project $GCLOUD_PROJECT          
+          
+    - step: &build
+        name: Install Dependencies and Build
+        caches:
+          - node
+        script:
+          - >
+            sed -i 's/"@": "src"/"@": "dist"/' package.json
+          - yarn $BUILD_PARAMS
+          - yarn build
+        artifacts: *artifacts
+  caches:
+    sonar: ~/.sonar
+
+pipelines:
+  default:
+    - parallel:
+        - step:
+            name: Test and Coverage
+            max-time: 120
+            script:
+              - yarn
+              - yarn test
+              - yarn test --coverage
+            artifacts: *test-artifacts
+        - step:
+            name: Linter and Prettier
+            max-time: 120
+            script:
+              - yarn
+              - yarn lint
+        - step:
+            name: Security Scan - Git Secrets
+            script:
+              - pipe: atlassian/git-secrets-scan:0.5.1
+    - step:
+        name: Security Scan - SonarQube
+        script:
+          - pipe: sonarsource/sonarqube-scan:1.2.0
+            variables:
+              SONAR_HOST_URL: ${SONAR_HOST_URL}
+              SONAR_TOKEN: ${SONAR_TOKEN}
+        artifacts: *test-artifacts
+    - step:
+        name: Quality Scan - SonarQube
+        script:
+          - pipe: sonarsource/sonarqube-quality-gate:1.1.0
+            variables:
+              SONAR_TOKEN: ${SONAR_TOKEN}
+        artifacts: *test-artifacts
+  branches:
+    master:
+      - step: *build
+      - step:
+          <<: *deploy
+          deployment: Production
+    release:
+      - step: *build
+      - step:
+          <<: *deploy
+          deployment: Homolog
+    develop:
+      - step: *build
+      - step:
+          <<: *deploy
+          deployment: Development
