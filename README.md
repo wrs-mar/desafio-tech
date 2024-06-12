@@ -12,3 +12,8 @@ Test: essa etapa valida se há uma cobertura mínima no código da api para dete
 Deploy: aqui é utilizado o artefato gerado na etapa da build para implementação da aplicação em um cluster kubernetes
 
 ____________________________________________________________________________________________________________________________________________________________________________________________________________
+
+Arquitetura da Solução
+
+
+![solucao](https://github.com/wrs-mar/desafio-tech/assets/84333247/0a91d405-bb0f-4923-be9b-63a3e1e69cf4)
