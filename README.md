@@ -17,3 +17,10 @@ Arquitetura da Solução
 
 
 ![solucao](https://github.com/wrs-mar/desafio-tech/assets/84333247/0a91d405-bb0f-4923-be9b-63a3e1e69cf4)
+
+
+______________________________________________________________________________________________________________________________________________________________________________________________________________
+
+Dasboard de Observabilidade
+
+![monitoramento](https://github.com/wrs-mar/desafio-tech/assets/84333247/f09489ae-261a-4da0-95ca-3b8874c6e995)
